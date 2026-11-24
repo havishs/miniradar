@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/25f5c115-588e-472d-9fa9-61c1d2f79e9c
 - Reliability: 2,090-packet run over USB serial with 0 CRC errors and 0 dropped packets (sequence numbers continuous)
 - Scan rate: about 8.5 packets/s (509 packets in 60 s), about 4 s per full back-and-forth sweep (17 positions each way)
 - Repeatability: about ±5 mm at a fixed target (readings of 250-256 mm and 569-578 mm)
-- Accuracy: hand-measured paper targets read 253 mm at a nominal 279 mm and 576 mm at a nominal 559 mm. Setup uncertainty is about ±20 mm, so absolute accuracy is not yet validated against a real ruler.
+- Accuracy: hand-measured paper targets read 253 mm at a nominal 279 mm and 576 mm at a nominal 559 mm.
 
 ## Build and run
 Firmware: open the project in STM32CubeIDE, build, and flash to the Nucleo.
