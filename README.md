@@ -3,6 +3,7 @@
 Servo-swept ultrasonic scanner on an STM32 NUCLEO-L476RG. Bare-metal, register-level C firmware streams CRC-protected binary packets to a C++ receiver, which serves a live radar view in the browser.
 
 <!-- add demo video / GIF link here -->
+https://github.com/user-attachments/assets/25f5c115-588e-472d-9fa9-61c1d2f79e9c
 
 ## Hardware
 - NUCLEO-L476RG (STM32L476RG, 80 MHz)
