@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>miniradar</title>
+<style>
+  body { background:#0a0f0a; color:#7CFC9A; font-family:monospace; text-align:center; margin:20px; }
+  canvas { background:#050805; border:1px solid #1d3a1d; }
+</style>
+</head>
+<body>
+<h2>miniradar</h2>
+<canvas id="c" width="600" height="330"></canvas>
+<div id="info">waiting for data...</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const info = document.getElementById('info');
+
+const CX = 300, CY = 300;      // radar origin (pixels)
+const RPX = 270;               // radius in pixels = max range
+const RMAX = 1000;             // max range shown (mm)
+const FADE_MS = 4000;          // dots fade over about one full sweep
+
+let points = [];               // {a, mm, t}
+let lastAngle = 0;
+
+function addReading(a, mm) {
+  lastAngle = a;
+  if (mm > 0 && mm <= RMAX) points.push({ a, mm, t: performance.now() });
+  info.textContent = `angle=${a}  distance=${mm} mm`;
+}
+
+function toXY(a, mm) {
+  const r = (mm / RMAX) * RPX;
+  const th = a * Math.PI / 180;
+  return [CX + r * Math.cos(th), CY - r * Math.sin(th)];
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // range rings every 250 mm
+  ctx.strokeStyle = '#1d3a1d';
+  ctx.fillStyle = '#3f7a4f';
+  for (let mm = 250; mm <= RMAX; mm += 250) {
+    const r = (mm / RMAX) * RPX;
+    ctx.beginPath();
+    ctx.arc(CX, CY, r, Math.PI, 2 * Math.PI);
+    ctx.stroke();
+    ctx.fillText(mm + 'mm', CX + r - 30, CY - 4);
+  }
+  // angle spokes every 30 degrees
+  for (let a = 0; a <= 180; a += 30) {
+    const [x, y] = toXY(a, RMAX);
+    ctx.beginPath(); ctx.moveTo(CX, CY); ctx.lineTo(x, y); ctx.stroke();
+  }
+
+  // sweep line at the current angle
+  const [sx, sy] = toXY(lastAngle, RMAX);
+  ctx.strokeStyle = '#7CFC9A';
+  ctx.beginPath(); ctx.moveTo(CX, CY); ctx.lineTo(sx, sy); ctx.stroke();
+
+  // dots, fading with age
+  const now = performance.now();
+  points = points.filter(p => now - p.t < FADE_MS);
+  for (const p of points) {
+    const alpha = 1 - (now - p.t) / FADE_MS;
+    const [x, y] = toXY(p.a, p.mm);
+    ctx.fillStyle = `rgba(124,252,154,${alpha})`;
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.fill();
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+
+// data source: live from the C++ server, or fake data if opened as a file
+if (location.protocol === 'file:') {
+  let a = 0, dir = 1;
+  setInterval(() => {
+    addReading(a, Math.round(500 + 300 * Math.sin(a / 20)));
+    a += dir * 11;
+    if (a >= 180 || a <= 0) dir = -dir;
+  }, 100);
+} else {
+  const es = new EventSource('/events');
+  es.onmessage = e => { const d = JSON.parse(e.data); addReading(d.a, d.mm); };
+}
+</script>
+</body>
+</html>
