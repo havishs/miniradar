@@ -64,6 +64,8 @@ static void MX_GPIO_Init(void);
   * @retval int
   */
 
+volatile uint32_t send_cycles;
+
 void USART1_Init(void) // bluetooth
 {
     RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
@@ -171,6 +173,21 @@ void Radar_Init(void)
 
     TIM4->EGR |= TIM_EGR_UG;
     TIM4->CR1 |= TIM_CR1_CEN;
+
+    TIM4->DIER |= TIM_DIER_CC2IE;
+    NVIC_EnableIRQ(TIM4_IRQn);
+}
+
+static volatile uint16_t echo_us;
+static volatile uint8_t  echo_done;
+
+void TIM4_IRQHandler(void)
+{
+    if (TIM4->SR & TIM_SR_CC2IF)
+    {
+        echo_us   = (uint16_t)(TIM4->CCR2 - TIM4->CCR1);
+        echo_done = 1;
+    }
 }
 
 static void delay_us(uint16_t us)
@@ -182,6 +199,7 @@ static void delay_us(uint16_t us)
 uint32_t Measure_Echo_us(void)
 {
     //clear flag
+    echo_done = 0;
     TIM4->SR = 0;
 
     GPIOB->BSRR = GPIO_BSRR_BS5;
@@ -189,10 +207,13 @@ uint32_t Measure_Echo_us(void)
     GPIOB->BSRR = GPIO_BSRR_BR5;
 
     uint16_t t0 = TIM4->CNT;
-    while (!(TIM4->SR & TIM_SR_CC2IF))
+    while (!echo_done)
+    {
         if ((uint16_t)(TIM4->CNT - t0) > 40000) return 0;  // nothing is in detectable distance
+        __WFI();
+    }
 
-    return (uint16_t)(TIM4->CCR2 - TIM4->CCR1);
+    return echo_us;
 }
 uint8_t crc8(const uint8_t *data, uint8_t len)
 {
@@ -211,12 +232,27 @@ uint8_t crc8(const uint8_t *data, uint8_t len)
     return crc;
 }
 
-static void send_bytes(USART_TypeDef *port, const uint8_t *p, int n)
+static uint8_t tx_buf[8];
+static volatile uint8_t tx1_idx = 8;
+static volatile uint8_t tx2_idx = 8;
+
+void USART1_IRQHandler(void)
 {
-    for (int i = 0; i < n; i++)
+    if ((USART1->CR1 & USART_CR1_TXEIE) && (USART1->ISR & USART_ISR_TXE))
     {
-        while (!(port->ISR & USART_ISR_TXE));
-        port->TDR = p[i];
+        USART1->TDR = tx_buf[tx1_idx++];
+        if (tx1_idx == 8)
+            USART1->CR1 &= ~USART_CR1_TXEIE;
+    }
+}
+
+void USART2_IRQHandler(void)
+{
+    if ((USART2->CR1 & USART_CR1_TXEIE) && (USART2->ISR & USART_ISR_TXE))
+    {
+        USART2->TDR = tx_buf[tx2_idx++];
+        if (tx2_idx == 8)
+            USART2->CR1 &= ~USART_CR1_TXEIE;
     }
 }
 
@@ -224,19 +260,21 @@ static uint8_t seq = 0;
 
 void send_packet(uint8_t angle, uint16_t dist_mm)
 {
-    uint8_t p[8];
+    while (tx1_idx < 8 || tx2_idx < 8);
 
-    p[0] = 0xAA;
-    p[1] = 0x55;
-    p[2] = seq++;
-    p[3] = angle;
-    p[4] = dist_mm & 0xFF;
-    p[5] = dist_mm >> 8;
-    p[6] = crc8(&p[2], 4);
-    p[7] = 0;
+    tx_buf[0] = 0xAA;
+    tx_buf[1] = 0x55;
+    tx_buf[2] = seq++;
+    tx_buf[3] = angle;
+    tx_buf[4] = dist_mm & 0xFF;
+    tx_buf[5] = dist_mm >> 8;
+    tx_buf[6] = crc8(&tx_buf[2], 4);
+    tx_buf[7] = 0;
 
-    send_bytes(USART2, p, 8);
-    send_bytes(USART1, p, 8);
+    tx1_idx = 0;
+    tx2_idx = 0;
+    USART2->CR1 |= USART_CR1_TXEIE;
+    USART1->CR1 |= USART_CR1_TXEIE;
 }
 static uint32_t median3(uint32_t a, uint32_t b, uint32_t c)
 {
@@ -266,7 +304,9 @@ static void scan_at(int ccr)
     uint32_t mm = us * 343 / 2000;
     int angle = (ccr - SERVO_MIN) * 180 / (SERVO_MAX - SERVO_MIN);
 
+    uint32_t c0 = DWT->CYCCNT;
     send_packet((uint8_t)angle, (uint16_t)mm);
+    send_cycles = DWT->CYCCNT - c0;
 
     /*
     snprintf(buf, sizeof(buf), "angle=%d  mm=%lu\r\n", angle, (unsigned long)mm);
@@ -314,8 +354,14 @@ int main(void)
   Init();
   USART2_Init();
   USART1_Init();
+  NVIC_EnableIRQ(USART1_IRQn);
+  NVIC_EnableIRQ(USART2_IRQn);
   TIM3_PWM_Init();
   Radar_Init();
+
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
   TIM3->CCR1 = SERVO_MIN;
   HAL_Delay(500);
