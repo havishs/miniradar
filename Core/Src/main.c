@@ -238,6 +238,14 @@ void send_packet(uint8_t angle, uint16_t dist_mm)
     send_bytes(USART2, p, 8);
     send_bytes(USART1, p, 8);
 }
+static uint32_t median3(uint32_t a, uint32_t b, uint32_t c)
+{
+    uint32_t t;
+    if (a > b) { t = a; a = b; b = t; }
+    if (b > c) { t = b; b = c; c = t; }
+    if (a > b) { t = a; a = b; b = t; }
+    return b;  // we want the middle value
+}
 
 #define SERVO_MIN   700
 #define SERVO_MAX   2300
@@ -248,7 +256,13 @@ static void scan_at(int ccr)
     TIM3->CCR1 = ccr;
     HAL_Delay(100);
 
-    uint32_t us = Measure_Echo_us();
+    uint32_t p1 = Measure_Echo_us();
+    HAL_Delay(50);
+    uint32_t p2 = Measure_Echo_us();
+    HAL_Delay(50);
+    uint32_t p3 = Measure_Echo_us();
+
+    uint32_t us = median3(p1, p2, p3);
     uint32_t mm = us * 343 / 2000;
     int angle = (ccr - SERVO_MIN) * 180 / (SERVO_MAX - SERVO_MIN);
 
@@ -307,6 +321,8 @@ int main(void)
   HAL_Delay(500);
 
 
+
+
   while (1)
   {
       for (int ccr = SERVO_MIN; ccr <= SERVO_MAX; ccr += SERVO_STEP)
@@ -314,6 +330,8 @@ int main(void)
       for (int ccr = SERVO_MAX; ccr >= SERVO_MIN; ccr -= SERVO_STEP)
           scan_at(ccr);
   }
+
+
 
 
 }
